@@ -97,3 +97,8 @@ pytest -q
 `tests/test_learner.py` covers the pure learning/planning logic (no HA needed).
 `tests/integration/` runs against a real Home Assistant with an in-memory recorder: it
 records an evening, learns it, and replays it the next day with a frozen clock.
+
+
+
+
+This repository was generated with help from Claude Opus and GitHub Copilot.

@@ -1,0 +1,100 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Presence Simulator",
+        "description": "Pick the area(s) to learn from and the day in history to copy. The integration reads the recorder for that day and turns the activity into a series of scenes that replay at the same time of day.",
+        "data": {
+          "name": "Name",
+          "areas": "Areas",
+          "domains": "Entity types",
+          "source_date": "Learn from date",
+          "source_days": "Number of days to learn"
+        },
+        "data_description": {
+          "source_date": "Must still be inside the recorder's retention window (purge_keep_days, default 10).",
+          "source_days": "Learn this many consecutive days starting at the date above. Use 7 to get one of each weekday."
+        }
+      }
+    },
+    "error": {
+      "no_areas": "Select at least one area.",
+      "no_domains": "Select at least one entity type.",
+      "future_date": "The date can't be in the future.",
+      "beyond_retention": "That date is older than the recorder keeps history for.",
+      "no_entities": "No enabled entities of the selected types were found in those areas."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Presence Simulator options",
+        "data": {
+          "areas": "Areas",
+          "domains": "Entity types",
+          "source_date": "Learn from date",
+          "source_days": "Number of days to learn",
+          "merge_seconds": "Merge window",
+          "jitter_minutes": "Random time jitter",
+          "replay_mode": "Which learned day to replay",
+          "restore_on_stop": "Restore previous states when simulation is switched off",
+          "create_scene_entities": "Create a scene entity for every learned scene",
+          "exclude_entities": "Exclude entities"
+        },
+        "data_description": {
+          "merge_seconds": "Changes this close together become one scene (e.g. walking in and turning on two lamps).",
+          "jitter_minutes": "Each scene fires up to this many minutes early or late, re-rolled every day.",
+          "replay_mode": "Only matters when more than one day has been learned."
+        }
+      }
+    },
+    "error": {
+      "no_areas": "Select at least one area.",
+      "no_domains": "Select at least one entity type.",
+      "future_date": "The date can't be in the future.",
+      "beyond_retention": "That date is older than the recorder keeps history for.",
+      "no_entities": "No enabled entities of the selected types were found in those areas."
+    }
+  },
+  "selector": {
+    "domains": {
+      "options": {
+        "light": "Lights",
+        "switch": "Switches",
+        "fan": "Fans",
+        "cover": "Covers / blinds",
+        "media_player": "Media players (on/off only)",
+        "input_boolean": "Input booleans"
+      }
+    },
+    "replay_mode": {
+      "options": {
+        "weekday": "Same weekday when available",
+        "sequential": "Cycle through learned days",
+        "random": "Random learned day"
+      }
+    }
+  },
+  "entity": {
+    "switch": {
+      "simulation": { "name": "Simulation" }
+    },
+    "button": {
+      "relearn": { "name": "Relearn from history" }
+    },
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "idle": "Idle",
+          "learning": "Learning",
+          "running": "Running",
+          "no_data": "No data"
+        }
+      },
+      "next_scene": { "name": "Next scene" },
+      "last_scene": { "name": "Last scene" },
+      "learned_scenes": { "name": "Learned scenes" }
+    }
+  }
+}

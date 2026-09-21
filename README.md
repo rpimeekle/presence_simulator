@@ -99,6 +99,12 @@ pytest -q
 records an evening, learns it, and replays it the next day with a frozen clock.
 
 
+## Attribution
 
+### AI Usage
 
-This repository was generated with help from Claude Opus and GitHub Copilot.
+This integration was developed with help from Claude Opus and GitHub Copilot.
+
+### Icon
+
+<a href="https://www.flaticon.com/free-icons/simulation" title="simulation icons">Simulation icons created by Eucalyp - Flaticon</a>

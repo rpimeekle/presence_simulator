@@ -1,0 +1,7 @@
+activate_scene:
+  fields:
+    scene_id:
+      required: true
+      example: presence_sim_ab12cd34_20260914_64800
+      selector:
+        text:

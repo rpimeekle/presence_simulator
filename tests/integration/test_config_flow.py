@@ -33,6 +33,8 @@ async def test_user_flow_creates_entry(
         "domains": ["light"],
         "source_date": "2026-09-14",
         "source_days": 1,
+        "window_start": "17:00:00",
+        "window_end": "01:00:00",
     }
     result = await hass.config_entries.flow.async_configure(result["flow_id"], user_input)
     assert result["errors"] == {"base": "no_entities"}
@@ -49,5 +51,6 @@ async def test_user_flow_creates_entry(
     assert result["title"] == "Study sim"
     assert result["options"]["areas"] == [area.id]
     assert result["options"]["source_days"] == 1
-    assert result["options"]["jitter_minutes"] == 10
+    assert result["options"]["jitter_minutes"] == 0
+    assert result["options"]["window_end"] == "01:00:00"
     await hass.async_block_till_done(wait_background_tasks=True)

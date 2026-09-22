@@ -1,13 +1,13 @@
 {
   "domain": "presence_simulator",
   "name": "Presence Simulator",
-  "codeowners": ["@rpimeekle"],
+  "codeowners": ["@bannon52"],
   "config_flow": true,
-  "dependencies": ["recorder"],
-  "documentation": "https://github.com/rpimeekle/presence_simulator/presence_simulator",
+  "dependencies": ["recorder", "scene", "automation"],
+  "documentation": "https://github.com/bannon52/presence_simulator",
   "integration_type": "service",
   "iot_class": "calculated",
-  "issue_tracker": "https://github.com/rpimeekle/presence_simulator/presence_simulator/issues",
+  "issue_tracker": "https://github.com/bannon52/presence_simulator/issues",
   "requirements": [],
-  "version": "2026.9.1"
+  "version": "0.2.0"
 }

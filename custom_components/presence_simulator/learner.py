@@ -1,20 +1,20 @@
-"""Pure learning and planning logic for Presence Simulator.
+"""Pure learning and scheduling logic for Presence Simulator.
 
 No Home Assistant imports live here, so this module can be unit tested with
 plain pytest (see tests/test_learner.py).
 
 Terminology
 -----------
-* change   - one recorded state row for one entity.
-* scene    - a full snapshot of every tracked entity at a point in the day,
-             stored as {"t": <seconds since local midnight>, "states": {...}}.
-* day      - the ordered list of scenes learned from one calendar date.
-* plan     - a day's scenes with jitter applied, ready to schedule.
+* window   - the part of a calendar day that is learned, e.g. 16:00 -> 23:30.
+             A window may cross midnight (e.g. 18:00 -> 01:00).
+* scene    - a full snapshot of every tracked entity at one point in the window:
+             {"t": <wall-clock seconds since midnight>, "shift": 0|1, "states": {...}}
+             ``shift`` is 1 when the event happened after midnight of the learned day.
+* schedule - which scenes run on which weekdays, at their original time of day.
 """
 from __future__ import annotations
 
 import copy
-import random
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, tzinfo
@@ -27,7 +27,7 @@ UNUSABLE_STATES = frozenset({"unavailable", "unknown", "none", ""})
 OFF_STATES = frozenset({"off", "closed"})
 
 # Attributes worth replaying, per domain. Only kept while the entity is "on".
-# Home Assistant's reproduce_state picks the right colour attribute from color_mode.
+# Home Assistant picks the right colour attribute from color_mode when applying.
 REPRODUCIBLE_ATTRS: dict[str, tuple[str, ...]] = {
     "light": (
         "brightness",
@@ -54,6 +54,17 @@ class Change:
     attributes: Mapping[str, Any]
 
 
+@dataclass(frozen=True, slots=True)
+class Window:
+    """The learned part of one calendar day."""
+
+    key: str  # ISO date of the learned day
+    weekday: int  # 0 = Monday
+    start: datetime
+    end: datetime
+    end_scene: bool = False  # add an "everything off" scene at the end
+
+
 def _jsonable(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_jsonable(v) for v in value]
@@ -62,6 +73,10 @@ def _jsonable(value: Any) -> Any:
     if value is None or isinstance(value, (bool, int, float)):
         return value
     return str(value)
+
+
+def off_state(entity_id: str) -> str:
+    return "closed" if entity_id.startswith("cover.") else "off"
 
 
 def normalise(entity_id: str, state: str | None, attributes: Mapping[str, Any]) -> dict | None:
@@ -95,19 +110,23 @@ def format_offset(offset: int) -> str:
     return f"{offset // 3600:02d}:{(offset % 3600) // 60:02d}:{offset % 60:02d}"
 
 
+def scene_abs(scene: Mapping[str, Any]) -> int:
+    """Seconds from the learned day's midnight (can exceed one day)."""
+    return scene.get("shift", 0) * SECONDS_PER_DAY + scene["t"]
+
+
 def learn(
     changes: Iterable[Change],
-    windows: list[tuple[str, int, datetime, datetime]],
+    windows: list[Window],
     merge_seconds: int,
     tz: tzinfo,
 ) -> dict[str, dict]:
-    """Turn recorded changes into a list of scenes per day.
+    """Turn recorded changes into a list of scenes per learned day.
 
-    windows: ordered (day_key, weekday, start, end) tuples, contiguous or not.
     Changes that start within ``merge_seconds`` of the first change in a
     cluster are merged into one scene, timed at the start of the cluster.
-    Each day begins with a baseline scene at 00:00:00 describing the state
-    carried in from the previous day.
+    Each window begins with a baseline scene describing the state at the
+    window's start time.
     """
     ordered = sorted(changes, key=lambda c: c.when)
     snapshot: dict[str, dict] = {}
@@ -119,76 +138,94 @@ def learn(
         if norm is not None:  # keep last known good state through "unavailable"
             snapshot[change.entity_id] = norm
 
-    for day_key, weekday, start, end in windows:
-        while idx < len(ordered) and ordered[idx].when <= start:
+    for win in windows:
+        day = date.fromisoformat(win.key)
+        # Anything before the window start only contributes to the baseline.
+        while idx < len(ordered) and ordered[idx].when <= win.start:
             apply(ordered[idx])
             idx += 1
-        # Skip anything between the previous window's end and this start.
+
         scenes: list[dict] = []
-        if snapshot:
-            scenes.append({"t": 0, "states": copy.deepcopy(snapshot)})
-        last_emitted = copy.deepcopy(snapshot)
-        cluster_start: datetime | None = None
+        last_emitted: dict[str, dict] | None = None
 
-        def emit() -> None:
+        def emit(when: datetime, states: dict[str, dict]) -> None:
             nonlocal last_emitted
-            if cluster_start is None or snapshot == last_emitted:
+            if not states or states == last_emitted:
                 return
-            offset = wall_offset(cluster_start, tz)
-            if scenes and offset <= scenes[-1]["t"]:
-                offset = scenes[-1]["t"] + 1
-            if offset > LAST_SECOND:
+            local = when.astimezone(tz)
+            shift = min(max((local.date() - day).days, 0), 1)
+            absolute = shift * SECONDS_PER_DAY + wall_offset(when, tz)
+            if scenes and absolute <= scene_abs(scenes[-1]):
+                absolute = scene_abs(scenes[-1]) + 1
+            shift, t = divmod(absolute, SECONDS_PER_DAY)
+            if shift > 1:
                 return
-            scenes.append({"t": offset, "states": copy.deepcopy(snapshot)})
-            last_emitted = copy.deepcopy(snapshot)
+            scenes.append({"t": t, "shift": shift, "states": copy.deepcopy(states)})
+            last_emitted = copy.deepcopy(states)
 
-        while idx < len(ordered) and ordered[idx].when < end:
+        emit(win.start, snapshot)  # baseline
+
+        cluster_start: datetime | None = None
+        while idx < len(ordered) and ordered[idx].when < win.end:
             change = ordered[idx]
             if cluster_start is None:
                 cluster_start = change.when
             elif (change.when - cluster_start).total_seconds() > merge_seconds:
-                emit()
+                emit(cluster_start, snapshot)
                 cluster_start = change.when
             apply(change)
             idx += 1
-        emit()
+        if cluster_start is not None:
+            emit(cluster_start, snapshot)
 
-        result[day_key] = {"weekday": weekday, "scenes": scenes}
+        if win.end_scene and snapshot:
+            emit(win.end, {eid: {"state": off_state(eid), "attributes": {}} for eid in snapshot})
+
+        result[win.key] = {"weekday": win.weekday, "scenes": scenes}
     return result
 
 
-def pick_day(days: Mapping[str, dict], target: date, mode: str, rng: random.Random) -> str | None:
-    """Choose which learned day to replay on ``target``."""
+def weekday_sources(days: Mapping[str, dict]) -> dict[int, str]:
+    """Map each weekday (0=Mon) to the learned day that should be replayed on it.
+
+    A learned day plays on its own weekday (the most recent one wins if several
+    share a weekday). Weekdays with no learned counterpart cycle through the
+    learned days, so a single learned day plays every day.
+    """
     keys = sorted(k for k, v in days.items() if v.get("scenes"))
     if not keys:
-        return None
-    if mode == "weekday":
-        same = [k for k in keys if days[k]["weekday"] == target.weekday()]
-        if same:
-            return same[(target.toordinal() // 7) % len(same)]
-        mode = "sequential"
-    if mode == "random":
-        return rng.choice(keys)
-    return keys[target.toordinal() % len(keys)]
+        return {}
+    mapping: dict[int, str] = {}
+    for weekday in range(7):
+        same = [k for k in keys if days[k]["weekday"] == weekday]
+        mapping[weekday] = same[-1] if same else keys[weekday % len(keys)]
+    return mapping
 
 
-def build_plan(scenes: list[dict], jitter_seconds: int, rng: random.Random) -> list[tuple[int, dict]]:
-    """Apply random jitter while preserving scene order.
+def schedule(days: Mapping[str, dict], jitter_seconds: int = 0) -> list[dict]:
+    """Build one schedule entry per scene that will actually be replayed.
 
-    Returns [(offset, scene), ...] strictly increasing by offset. The 00:00:00
-    baseline is never jittered.
+    Each entry fires at the scene's original wall-clock time on ``weekdays``.
+    ``max_delay`` is the optional random delay, capped so a scene can never be
+    pushed past the next one (which would replay events out of order).
     """
-    plan: list[tuple[int, dict]] = []
-    prev = -1
-    for scene in scenes:
-        offset = scene["t"]
-        if offset > 0:
-            if jitter_seconds > 0:
-                offset += rng.randint(-jitter_seconds, jitter_seconds)
-            offset = min(max(offset, 1), LAST_SECOND)
-        offset = max(offset, prev + 1)
-        if offset > LAST_SECOND:
-            break
-        plan.append((offset, scene))
-        prev = offset
-    return plan
+    sources = weekday_sources(days)
+    entries: list[dict] = []
+    for key in sorted(days):
+        weekdays = sorted(w for w, k in sources.items() if k == key)
+        if not weekdays:
+            continue
+        scenes = days[key]["scenes"]
+        for i, scene in enumerate(scenes):
+            gap = scene_abs(scenes[i + 1]) - scene_abs(scene) - 1 if i + 1 < len(scenes) else jitter_seconds
+            entries.append(
+                {
+                    "day_key": key,
+                    "t": scene["t"],
+                    "shift": scene.get("shift", 0),
+                    "weekdays": sorted((w + scene.get("shift", 0)) % 7 for w in weekdays),
+                    "max_delay": max(0, min(jitter_seconds, gap)),
+                    "states": scene["states"],
+                }
+            )
+    return entries

@@ -15,18 +15,18 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_AREAS,
-    CONF_CREATE_SCENES,
     CONF_DOMAINS,
     CONF_EXCLUDE_ENTITIES,
     CONF_JITTER_MINUTES,
     CONF_MERGE_SECONDS,
-    CONF_REPLAY_MODE,
+    CONF_OFF_AT_END,
     CONF_RESTORE_ON_STOP,
     CONF_SOURCE_DATE,
     CONF_SOURCE_DAYS,
+    CONF_WINDOW_END,
+    CONF_WINDOW_START,
     DEFAULT_OPTIONS,
     DOMAIN,
-    REPLAY_MODES,
     SUPPORTED_DOMAINS,
 )
 from .coordinator import async_resolve_entities
@@ -47,6 +47,8 @@ SOURCE_FIELDS = {
     vol.Required(CONF_SOURCE_DAYS): selector.NumberSelector(
         selector.NumberSelectorConfig(min=1, max=14, step=1, mode=selector.NumberSelectorMode.BOX)
     ),
+    vol.Required(CONF_WINDOW_START): selector.TimeSelector(),
+    vol.Required(CONF_WINDOW_END): selector.TimeSelector(),
 }
 
 TUNING_FIELDS = {
@@ -57,14 +59,11 @@ TUNING_FIELDS = {
     ),
     vol.Required(CONF_JITTER_MINUTES): selector.NumberSelector(
         selector.NumberSelectorConfig(
-            min=0, max=60, step=1, unit_of_measurement="min", mode=selector.NumberSelectorMode.SLIDER
+            min=0, max=30, step=1, unit_of_measurement="min", mode=selector.NumberSelectorMode.SLIDER
         )
     ),
-    vol.Required(CONF_REPLAY_MODE): selector.SelectSelector(
-        selector.SelectSelectorConfig(options=REPLAY_MODES, translation_key="replay_mode")
-    ),
+    vol.Required(CONF_OFF_AT_END): selector.BooleanSelector(),
     vol.Required(CONF_RESTORE_ON_STOP): selector.BooleanSelector(),
-    vol.Required(CONF_CREATE_SCENES): selector.BooleanSelector(),
     vol.Optional(CONF_EXCLUDE_ENTITIES): selector.EntitySelector(
         selector.EntitySelectorConfig(domain=SUPPORTED_DOMAINS, multiple=True)
     ),
@@ -99,11 +98,16 @@ def _validate(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, str]:
 
     if not errors and not async_resolve_entities(hass, {**DEFAULT_OPTIONS, **data}):
         errors["base"] = "no_entities"
+    if not errors and not (
+        hass.services.has_service("scene", "reload")
+        and hass.services.has_service("automation", "reload")
+    ):
+        errors["base"] = "yaml_not_loaded"
     return errors
 
 
 class PresenceSimulatorConfigFlow(ConfigFlow, domain=DOMAIN):
-    VERSION = 1
+    VERSION = 2
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
@@ -124,6 +128,8 @@ class PresenceSimulatorConfigFlow(ConfigFlow, domain=DOMAIN):
             CONF_DOMAINS: DEFAULT_OPTIONS[CONF_DOMAINS],
             CONF_SOURCE_DATE: (dt_util.now().date() - timedelta(days=1)).isoformat(),
             CONF_SOURCE_DAYS: DEFAULT_OPTIONS[CONF_SOURCE_DAYS],
+            CONF_WINDOW_START: DEFAULT_OPTIONS[CONF_WINDOW_START],
+            CONF_WINDOW_END: DEFAULT_OPTIONS[CONF_WINDOW_END],
         }
         return self.async_show_form(
             step_id="user",

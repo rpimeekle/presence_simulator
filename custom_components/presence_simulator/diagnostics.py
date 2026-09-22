@@ -25,8 +25,17 @@ async def async_get_config_entry_diagnostics(
         "days": {
             key: {
                 "weekday": day["weekday"],
-                "scene_times": [learner.format_offset(s["t"]) for s in day["scenes"]],
+                "scene_times": [
+                    f"{learner.format_offset(s['t'])}{' (+1d)' if s.get('shift') else ''}"
+                    for s in day["scenes"]
+                ],
             }
             for key, day in sim.days.items()
         },
+        "schedule": [
+            {k: v for k, v in e.items() if k != "states"} for e in sim.schedule
+        ],
+        "scene_ids": sim.scene_ids,
+        "automation_ids": sim.automation_ids,
+        "edited_in_frontend": sim.edited_ids,
     }
